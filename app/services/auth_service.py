@@ -16,7 +16,12 @@ from app.schemas.user import (
 )
 from app.config import settings
 from app.utils.jwt_handler import create_access_token, create_refresh_token, decode_token
-from app.utils.security import hash_password, verify_password, verify_totp
+from app.utils.security import (
+    generate_totp_secret,
+    hash_password,
+    verify_password,
+    verify_totp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -152,13 +157,49 @@ async def refresh_tokens(refresh_token: str, db: AsyncSession) -> TokenResponse:
     return tokens
 
 
+async def _get_user_by_id(user_id: str, db: AsyncSession) -> User:
+    try:
+        uid = uuid_mod.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=401, detail="Token inválido")
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if not user or not user.activo:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return user
+
+
 async def get_current_user(user_id: str, db: AsyncSession) -> UserResponse:
-    raise NotImplementedError
+    user = await _get_user_by_id(user_id, db)
+    return UserResponse.model_validate(user)
 
 
 async def setup_mfa(user_id: str, db: AsyncSession) -> MFASetupResponse:
-    raise NotImplementedError
+    user = await _get_user_by_id(user_id, db)
+    secret = generate_totp_secret()
+    user.mfa_secret = secret
+    await db.commit()
+
+    qr_uri = f"otpauth://totp/TravelHub:{user.email}?secret={secret}&issuer=TravelHub"
+    logger.info("MFA configurado para: %s", user.email)
+    return MFASetupResponse(secret=secret, qr_uri=qr_uri)
 
 
-async def verify_mfa(user_id: str, totp_code: str, db: AsyncSession) -> MessageResponse:
-    raise NotImplementedError
+async def verify_mfa(
+    user_id: str, totp_code: str, db: AsyncSession
+) -> MessageResponse:
+    user = await _get_user_by_id(user_id, db)
+
+    if not user.mfa_secret:
+        raise HTTPException(
+            status_code=400, detail="MFA no configurado. Ejecute setup primero"
+        )
+
+    if not verify_totp(user.mfa_secret, totp_code):
+        raise HTTPException(status_code=401, detail="Código MFA inválido")
+
+    user.mfa_activo = True
+    await db.commit()
+
+    logger.info("MFA verificado y activado para: %s", user.email)
+    return MessageResponse(message="MFA activado exitosamente")

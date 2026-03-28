@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.middleware.auth_chain import get_current_user_id
 from app.schemas.user import (
     MFASetupResponse,
     MFAVerifyRequest,
@@ -35,15 +36,25 @@ async def refresh(request: RefreshTokenRequest, db: AsyncSession = Depends(get_d
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me():
-    raise NotImplementedError
+async def get_me(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.get_current_user(user_id, db)
 
 
 @router.post("/mfa/setup", response_model=MFASetupResponse)
-async def mfa_setup():
-    raise NotImplementedError
+async def mfa_setup(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.setup_mfa(user_id, db)
 
 
 @router.post("/mfa/verify", response_model=MessageResponse)
-async def mfa_verify(request: MFAVerifyRequest):
-    raise NotImplementedError
+async def mfa_verify(
+    request: MFAVerifyRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.verify_mfa(user_id, request.totp_code, db)
