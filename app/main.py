@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import auth
+from app.utils.rsa_keys import get_jwks
 
 app = FastAPI(
     title="TravelHub User Services",
@@ -18,6 +19,11 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+
+
+@app.get("/.well-known/jwks.json")
+async def jwks():
+    return get_jwks()
 
 
 @app.get("/health")

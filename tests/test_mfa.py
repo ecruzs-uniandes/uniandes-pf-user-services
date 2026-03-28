@@ -28,7 +28,7 @@ async def test_user(db_session):
 
 @pytest_asyncio.fixture
 def auth_headers(test_user):
-    token = create_access_token({"sub": str(test_user.id), "rol": test_user.rol})
+    token = create_access_token({"sub": str(test_user.id), "role": "traveler", "mfa_verified": False, "country": "CO", "hotel_id": None})
     return {"Authorization": f"Bearer {token}"}
 
 

@@ -121,15 +121,32 @@ def _validate_mfa(user: User, totp_code: str | None) -> None:
         )
 
 
+ROLE_MAP = {
+    "viajero": "traveler",
+    "admin_hotel": "hotel_admin",
+    "admin_plataforma": "platform_admin",
+    "traveler": "traveler",
+    "hotel_admin": "hotel_admin",
+    "platform_admin": "platform_admin",
+}
+
+
 def _generate_tokens(user: User) -> TokenResponse:
-    payload = {"sub": str(user.id), "rol": user.rol}
+    mapped_role = ROLE_MAP.get(user.rol, user.rol)
+    payload = {
+        "sub": str(user.id),
+        "role": mapped_role,
+        "mfa_verified": user.mfa_activo,
+        "country": user.pais or "CO",
+        "hotel_id": str(user.hotel_id) if getattr(user, "hotel_id", None) else None,
+    }
     access_token = create_access_token(payload)
     refresh_token = create_refresh_token(payload)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        expires_in=settings.JWT_ACCESS_TTL,
     )
 
 

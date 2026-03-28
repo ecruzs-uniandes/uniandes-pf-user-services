@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -30,6 +30,7 @@ class User(Base):
 
     # RBAC
     rol: Mapped[str] = mapped_column(String(50), nullable=False, default="viajero")
+    hotel_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     # Auditoria
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

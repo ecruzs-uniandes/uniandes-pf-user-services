@@ -47,7 +47,7 @@ async def test_login_valid_credentials_returns_200(async_client, test_user):
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 1800
+    assert data["expires_in"] == 900
 
 
 @pytest.mark.asyncio

@@ -30,7 +30,7 @@ async def test_user(db_session):
 
 @pytest.mark.asyncio
 async def test_refresh_valid_token_returns_200(async_client, test_user):
-    refresh_token = create_refresh_token({"sub": str(test_user.id), "rol": test_user.rol})
+    refresh_token = create_refresh_token({"sub": str(test_user.id), "role": "traveler", "mfa_verified": False, "country": "CO", "hotel_id": None})
     response = await async_client.post(
         REFRESH_URL, json={"refresh_token": refresh_token}
     )
@@ -39,7 +39,7 @@ async def test_refresh_valid_token_returns_200(async_client, test_user):
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 1800
+    assert data["expires_in"] == 900
 
 
 # --- Error cases ---
@@ -47,7 +47,7 @@ async def test_refresh_valid_token_returns_200(async_client, test_user):
 
 @pytest.mark.asyncio
 async def test_refresh_with_access_token_returns_401(async_client, test_user):
-    access_token = create_access_token({"sub": str(test_user.id), "rol": test_user.rol})
+    access_token = create_access_token({"sub": str(test_user.id), "role": "traveler", "mfa_verified": False, "country": "CO", "hotel_id": None})
     response = await async_client.post(
         REFRESH_URL, json={"refresh_token": access_token}
     )
@@ -65,7 +65,7 @@ async def test_refresh_invalid_token_returns_401(async_client):
 
 @pytest.mark.asyncio
 async def test_refresh_inactive_user_returns_401(async_client, test_user, db_session):
-    refresh_token = create_refresh_token({"sub": str(test_user.id), "rol": test_user.rol})
+    refresh_token = create_refresh_token({"sub": str(test_user.id), "role": "traveler", "mfa_verified": False, "country": "CO", "hotel_id": None})
     test_user.activo = False
     await db_session.commit()
 

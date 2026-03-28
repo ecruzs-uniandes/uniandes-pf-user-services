@@ -33,7 +33,7 @@ Request HTTP
 Router (auth.py)            -- Recibe HTTP, delega al Service. Sin logica de negocio.
     |
     v
-Middleware (auth_chain.py)   -- Chain of Responsibility: RateLimit -> Token -> Role
+Middleware (auth_chain.py)   -- Chain of Responsibility: RateLimit -> Token -> IPValidation -> RBAC -> MFA
     |
     v
 Service (auth_service.py)   -- Toda la logica de negocio. Lanza HTTPException.
@@ -49,7 +49,7 @@ PostgreSQL (asyncpg)
 
 | Patron | Ubicacion | Proposito |
 |--------|-----------|-----------|
-| Chain of Responsibility (GoF) | `app/middleware/auth_chain.py` | Cadena de filtros de autenticacion: RateLimitFilter, TokenValidationFilter, RoleFilter |
+| Chain of Responsibility (GoF) | `app/middleware/auth_chain.py` | Cadena de filtros de autenticacion: RateLimitFilter, TokenValidationFilter, IPValidationFilter, RBACFilter, MFAFilter |
 | Repository (implicito) | `app/services/auth_service.py` | Acceso a datos mediante SQLAlchemy AsyncSession |
 | Dependency Injection | Routers via FastAPI `Depends()` | Inyeccion de sesion de BD y autenticacion |
 | SOLID - Single Responsibility | Todas las capas | Cada modulo tiene una unica razon de cambio |
@@ -60,7 +60,7 @@ PostgreSQL (asyncpg)
 La cadena de autenticacion procesa cada request protegido en orden fijo e inmutable:
 
 ```
-RateLimitFilter -> TokenValidationFilter -> RoleFilter -> Handler
+RateLimitFilter -> TokenValidationFilter -> IPValidationFilter -> RBACFilter -> MFAFilter -> Handler
 ```
 
 Cada filtro hereda de la clase abstracta `AuthFilter` e implementa el metodo `handle()`. Un filtro puede aprobar la solicitud (delegando al siguiente) o rechazarla (lanzando `HTTPException`).
@@ -82,6 +82,7 @@ Cada filtro hereda de la clase abstracta `AuthFilter` e implementa el metodo `ha
 | Configuracion | pydantic-settings | 2.7.1 |
 | Hashing de contrasenas | bcrypt | 4.2.1 |
 | Tokens JWT | python-jose[cryptography] | 3.3.0 |
+| Criptografia RSA | cryptography | 44.0.0 |
 | TOTP/MFA | pyotp | 2.9.0 |
 | Codigos QR | qrcode[pil] | 8.0 |
 | Testing | pytest + pytest-asyncio | 8.3.4 / 0.25.0 |
@@ -113,7 +114,8 @@ user-services/
 │   ├── middleware/
 │   │   └── auth_chain.py           # Chain of Responsibility (AH008)
 │   └── utils/
-│       ├── jwt_handler.py          # Creacion y decodificacion de JWT
+│       ├── jwt_handler.py          # Creacion y decodificacion de JWT (RS256)
+│       ├── rsa_keys.py             # Generacion de claves RSA 2048, JWKS
 │       └── security.py             # bcrypt + TOTP helpers
 ├── alembic/
 │   ├── env.py                      # Configuracion de migraciones
@@ -155,8 +157,12 @@ Crear un archivo `.env` en la raiz del proyecto con las siguientes variables:
 DATABASE_URL=postgresql+asyncpg://travelhub:travelhub_dev@localhost:5432/travelhub_users
 DATABASE_URL_SYNC=postgresql+psycopg2://travelhub:travelhub_dev@localhost:5432/travelhub_users
 JWT_SECRET_KEY=dev-secret-key-change-in-production
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+JWT_ALGORITHM=RS256
+JWT_ISSUER=https://auth.travelhub.app
+JWT_AUDIENCE=travelhub-api
+JWT_ACCESS_TTL=900
+JWT_REFRESH_TTL=604800
+ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=7
 BCRYPT_ROUNDS=12
 MAX_LOGIN_ATTEMPTS=5
@@ -167,7 +173,7 @@ ENVIRONMENT=development
 DEBUG=true
 ```
 
-> **Importante:** En produccion, `JWT_SECRET_KEY` debe ser un valor criptograficamente seguro y gestionado mediante un servicio de secretos (GCP Secret Manager, AWS KMS, etc.).
+> **Importante:** En produccion, las claves RSA deberian gestionarse mediante Cloud KMS o un servicio de secretos equivalente. Para este sprint se generan en memoria al arrancar.
 
 ### Instalacion Local
 
@@ -309,7 +315,7 @@ El campo `totp_code` es obligatorio unicamente cuando el usuario tiene MFA activ
   "access_token": "eyJhbGciOi...",
   "refresh_token": "eyJhbGciOi...",
   "token_type": "bearer",
-  "expires_in": 1800
+  "expires_in": 900
 }
 ```
 
@@ -445,26 +451,59 @@ Health check del servicio.
 
 ### Tokens JWT
 
-El servicio emite dos tipos de tokens:
+El servicio emite dos tipos de tokens firmados con **RS256** (RSA 2048 bits):
 
-| Tipo | Expiracion | Payload |
-|------|------------|---------|
-| Access Token | 30 minutos | `{ sub, rol, type: "access", exp, iat }` |
-| Refresh Token | 7 dias | `{ sub, type: "refresh", exp, iat }` |
+| Tipo          | Expiracion        | Payload                                                                               |
+|---------------|-------------------|---------------------------------------------------------------------------------------|
+| Access Token  | 15 minutos (900s) | `{ sub, role, mfa_verified, country, hotel_id, iss, aud, type: "access", exp, iat }`  |
+| Refresh Token | 7 dias (604800s)  | `{ sub, role, mfa_verified, country, hotel_id, iss, aud, type: "refresh", exp, iat }` |
 
-Ambos tokens estan firmados con HMAC-SHA256 (`HS256`). El servicio valida estrictamente el tipo de token: un refresh token no es aceptado donde se espera un access token, y viceversa.
+- **Issuer (`iss`):** `https://auth.travelhub.app`
+- **Audience (`aud`):** `travelhub-api`
+- **Key ID (`kid`):** `travelhub-key-1` (incluido en el header JWT)
+
+Las claves RSA se generan en memoria al arrancar el servicio. La clave publica se expone en formato JWKS en `GET /.well-known/jwks.json` para que el API Gateway valide los tokens.
+
+El servicio valida estrictamente el tipo de token: un refresh token no es aceptado donde se espera un access token, y viceversa.
+
+### JWKS Endpoint
+
+`GET /.well-known/jwks.json` retorna la clave publica en formato JWK:
+
+```json
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "kid": "travelhub-key-1",
+      "use": "sig",
+      "alg": "RS256",
+      "n": "<modulus-base64url>",
+      "e": "<exponent-base64url>"
+    }
+  ]
+}
+```
 
 ### RBAC (Control de Acceso Basado en Roles)
 
-Los roles disponibles son:
+Los roles en BD se mapean a roles del gateway al generar el JWT:
 
-| Rol | Descripcion |
-|-----|-------------|
-| `viajero` | Rol por defecto asignado en el registro |
-| `admin_hotel` | Administrador de una propiedad hotelera |
-| `admin_sistema` | Administrador de la plataforma |
+| Rol en BD           | Rol en JWT       | Descripcion                              |
+|---------------------|------------------|------------------------------------------|
+| `viajero`           | `traveler`       | Rol por defecto asignado en el registro  |
+| `admin_hotel`       | `hotel_admin`    | Administrador de una propiedad hotelera  |
+| `admin_plataforma`  | `platform_admin` | Administrador de la plataforma           |
 
-El `RoleFilter` en la cadena de autenticacion verifica que el rol del usuario (contenido en el JWT) este dentro de la lista de roles permitidos para el endpoint solicitado.
+Permisos por rol:
+
+| Rol              | Acceso                                           |
+|------------------|--------------------------------------------------|
+| `traveler`       | search, bookings, payments, cart, notifications  |
+| `hotel_admin`    | search, bookings, inventory, pms, notifications  |
+| `platform_admin` | todo, incluyendo /admin                          |
+
+El `RBACFilter` en la cadena de autenticacion verifica que el rol del usuario (contenido en el JWT) este dentro de la lista de roles permitidos para el endpoint solicitado. El `MFAFilter` requiere `mfa_verified=true` para rutas `/payments` y `/admin`.
 
 ### MFA (Autenticacion Multifactor)
 
@@ -499,6 +538,7 @@ Tabla `users`:
 | `failed_login_attempts` | INTEGER | NOT NULL, default 0 | Contador de intentos fallidos |
 | `locked_until` | TIMESTAMPTZ | nullable | Fecha limite de bloqueo |
 | `rol` | VARCHAR(50) | NOT NULL, default 'viajero' | Rol RBAC |
+| `hotel_id` | UUID | nullable | ID de hotel (solo para hotel_admin) |
 | `activo` | BOOLEAN | NOT NULL, default TRUE | Soft delete |
 | `fecha_registro` | TIMESTAMPTZ | NOT NULL, auto | Fecha de creacion |
 | `fecha_actualizacion` | TIMESTAMPTZ | NOT NULL, auto | Fecha de ultima actualizacion |
@@ -606,7 +646,8 @@ gcloud run deploy user-services \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars "DATABASE_URL=<PROD_DB_URL>,JWT_SECRET_KEY=<PROD_SECRET>,ENVIRONMENT=production" \
+  --vpc-connector=travelhub-connector \
+  --set-env-vars "DATABASE_URL=<PROD_DB_URL>,JWT_ISSUER=https://auth.travelhub.app,JWT_AUDIENCE=travelhub-api,ENVIRONMENT=production" \
   --min-instances 1 \
   --max-instances 10 \
   --memory 512Mi \

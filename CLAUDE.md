@@ -30,22 +30,23 @@ docker build --target production -t gcr.io/<PROJECT_ID>/user-services:latest .
 
 ## Stack
 
-Python 3.12 · FastAPI 0.115.6 · SQLAlchemy async 2.0.36 · asyncpg 0.30.0 · Pydantic 2.10.4 · Alembic 1.14.1 · bcrypt 4.2.1 · python-jose 3.3.0 · pyotp 2.9.0 · PostgreSQL 16
+Python 3.12 · FastAPI 0.115.6 · SQLAlchemy async 2.0.36 · asyncpg 0.30.0 · Pydantic 2.10.4 · Alembic 1.14.1 · bcrypt 4.2.1 · python-jose 3.3.0 · cryptography 44.0.0 · pyotp 2.9.0 · PostgreSQL 16
 
 ## Estructura
 
 ```
 app/
-├── main.py              # App, CORS, routers, health
+├── main.py              # App, CORS, routers, health, JWKS endpoint
 ├── config.py            # pydantic-settings, env vars
 ├── database.py          # AsyncSession, Base, get_db
-├── models/user.py       # SQLAlchemy User
+├── models/user.py       # SQLAlchemy User (incluye hotel_id)
 ├── schemas/user.py      # Pydantic request/response
 ├── routers/auth.py      # Endpoints HTTP (sin lógica de negocio)
-├── services/auth_service.py  # Toda la lógica de negocio
-├── middleware/auth_chain.py  # Chain of Responsibility: RateLimit → Token → Role
+├── services/auth_service.py  # Toda la lógica de negocio + mapeo de roles
+├── middleware/auth_chain.py  # Chain of Responsibility: RateLimit → Token → IPValidation → RBAC → MFA
 └── utils/
-    ├── jwt_handler.py   # JWT create/decode
+    ├── jwt_handler.py   # JWT create/decode (RS256)
+    ├── rsa_keys.py      # Generación RSA 2048, JWKS
     └── security.py      # bcrypt + TOTP
 tests/
 ├── conftest.py          # Fixtures: async_client, test_db, test_user, auth_headers
@@ -60,7 +61,9 @@ tests/
 
 - **Capas:** Router → Service → Model. Routers solo reciben/delegan. Services tienen la lógica. Models sin lógica.
 - **Async everywhere:** Solo `AsyncSession` en endpoints. `psycopg2` solo en Alembic.
-- **Chain of Responsibility (AH008):** Orden fijo `RateLimitFilter → TokenValidationFilter → RoleFilter`. Cada filtro hereda de `AuthFilter` con `set_next()` y `handle()`. No cambiar el orden.
+- **Chain of Responsibility (AH008):** Orden fijo `RateLimitFilter → TokenValidationFilter → IPValidationFilter → RBACFilter → MFAFilter`. Cada filtro hereda de `AuthFilter` con `set_next()` y `handle()`. No cambiar el orden.
+- **JWT con RS256:** Claves RSA 2048 generadas al arrancar. Clave pública expuesta en `/.well-known/jwks.json`. Header incluye `kid: "travelhub-key-1"`.
+- **Roles gateway:** El JWT usa roles en inglés (`traveler`, `hotel_admin`, `platform_admin`). El mapeo desde BD (`viajero`, etc.) se hace en `_generate_tokens()`.
 
 ## Convenciones
 
@@ -84,9 +87,14 @@ tests/
 - MFA activo sin `totp_code` → 428; código inválido → 401
 
 ### JWT
-- Access token: 30 min, payload `{sub, rol, type: "access", exp, iat}`
-- Refresh token: 7 días, payload `{sub, type: "refresh", exp, iat}`
+
+- Algoritmo: RS256 (RSA 2048). Claves generadas en memoria al arrancar.
+- Access token: 15 min (900s), payload `{sub, role, mfa_verified, country, hotel_id, iss, aud, type: "access", exp, iat}`
+- Refresh token: 7 días (604800s), payload `{sub, role, mfa_verified, country, hotel_id, iss, aud, type: "refresh", exp, iat}`
+- `iss` = `https://auth.travelhub.app`, `aud` = `travelhub-api`
+- Header JWT incluye `kid: "travelhub-key-1"`
 - Nunca aceptar refresh donde se espera access (y viceversa)
+- Endpoint JWKS: `GET /.well-known/jwks.json` expone la clave pública para el API Gateway
 
 ### MFA
 - Setup genera secret base32 de 32 chars, QR URI `otpauth://totp/TravelHub:...`
