@@ -1,4 +1,5 @@
 import logging
+import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -14,7 +15,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.config import settings
-from app.utils.jwt_handler import create_access_token, create_refresh_token
+from app.utils.jwt_handler import create_access_token, create_refresh_token, decode_token
 from app.utils.security import hash_password, verify_password, verify_totp
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,27 @@ def _generate_tokens(user: User) -> TokenResponse:
 
 
 async def refresh_tokens(refresh_token: str, db: AsyncSession) -> TokenResponse:
-    raise NotImplementedError
+    try:
+        payload = decode_token(refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Se esperaba un refresh token")
+
+    try:
+        user_id = uuid_mod.UUID(payload.get("sub"))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.activo:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    tokens = _generate_tokens(user)
+    logger.info("Tokens renovados para: %s", user.email)
+    return tokens
 
 
 async def get_current_user(user_id: str, db: AsyncSession) -> UserResponse:

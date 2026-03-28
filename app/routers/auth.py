@@ -31,7 +31,7 @@ async def login(request: UserLoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
-    raise NotImplementedError
+    return await auth_service.refresh_tokens(request.refresh_token, db)
 
 
 @router.get("/me", response_model=UserResponse)
