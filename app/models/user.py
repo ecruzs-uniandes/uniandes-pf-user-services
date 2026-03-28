@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -34,8 +34,8 @@ class User(Base):
     # Auditoria
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     fecha_registro: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     fecha_actualizacion: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default="now()", onupdate=datetime.now
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )

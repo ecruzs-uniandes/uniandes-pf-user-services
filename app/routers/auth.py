@@ -12,13 +12,14 @@ from app.schemas.user import (
     UserRegisterRequest,
     UserResponse,
 )
+from app.services import auth_service
 
 router = APIRouter()
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 async def register(request: UserRegisterRequest, db: AsyncSession = Depends(get_db)):
-    raise NotImplementedError
+    return await auth_service.register_user(request, db)
 
 
 @router.post("/login", response_model=TokenResponse)
