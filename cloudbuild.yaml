@@ -6,17 +6,10 @@ steps:
       - '--target'
       - 'production'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/user-services:$COMMIT_SHA'
-      - '-t'
       - 'gcr.io/$PROJECT_ID/user-services:latest'
       - '.'
 
   # 2. Push de la imagen a Container Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/user-services:$COMMIT_SHA'
-
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
@@ -30,7 +23,7 @@ steps:
       - 'deploy'
       - 'user-services'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/user-services:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/user-services:latest'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -49,10 +42,9 @@ steps:
       - '--max-instances'
       - '10'
       - '--set-env-vars'
-      - 'JWT_ISSUER=https://auth.travelhub.app,JWT_AUDIENCE=travelhub-api,JWT_ALGORITHM=RS256,JWT_ACCESS_TTL=900,JWT_REFRESH_TTL=604800,ENVIRONMENT=production,DEBUG=false'
+      - 'DATABASE_URL=postgresql+asyncpg://travelhub_app:lALk8rAOj1TSltRQzGavZdBCrSu67ZJg@10.100.0.3:5432/travelhub,DATABASE_URL_SYNC=postgresql+psycopg2://travelhub_app:lALk8rAOj1TSltRQzGavZdBCrSu67ZJg@10.100.0.3:5432/travelhub,JWT_ISSUER=https://auth.travelhub.app,JWT_AUDIENCE=travelhub-api,JWT_ALGORITHM=RS256,JWT_ACCESS_TTL=900,JWT_REFRESH_TTL=604800,ENVIRONMENT=production,DEBUG=false'
 
 images:
-  - 'gcr.io/$PROJECT_ID/user-services:$COMMIT_SHA'
   - 'gcr.io/$PROJECT_ID/user-services:latest'
 
 options:
