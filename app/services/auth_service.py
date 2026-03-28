@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -12,7 +13,9 @@ from app.schemas.user import (
     UserRegisterRequest,
     UserResponse,
 )
-from app.utils.security import hash_password
+from app.config import settings
+from app.utils.jwt_handler import create_access_token, create_refresh_token
+from app.utils.security import hash_password, verify_password, verify_totp
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,78 @@ async def register_user(request: UserRegisterRequest, db: AsyncSession) -> UserR
     return UserResponse.model_validate(user)
 
 
-async def login_user(email: str, password: str, totp_code: str | None, db: AsyncSession) -> TokenResponse:
-    raise NotImplementedError
+async def login_user(
+    email: str, password: str, totp_code: str | None, db: AsyncSession
+) -> TokenResponse:
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.activo:
+        logger.warning("Login fallido para: %s — usuario no encontrado", email)
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    _check_lockout(user)
+
+    if not verify_password(password, user.hashed_password):
+        await _handle_failed_attempt(user, db)
+        logger.warning("Login fallido para: %s — contraseña incorrecta", email)
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    if user.mfa_activo:
+        _validate_mfa(user, totp_code)
+
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    await db.commit()
+
+    tokens = _generate_tokens(user)
+    logger.info("Login exitoso: %s", user.email)
+    return tokens
+
+
+def _check_lockout(user: User) -> None:
+    locked = user.locked_until
+    if locked:
+        if locked.tzinfo is None:
+            locked = locked.replace(tzinfo=timezone.utc)
+        if locked > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=423,
+                detail="Cuenta bloqueada por múltiples intentos fallidos",
+            )
+
+
+async def _handle_failed_attempt(user: User, db: AsyncSession) -> None:
+    user.failed_login_attempts += 1
+    if user.failed_login_attempts >= settings.MAX_LOGIN_ATTEMPTS:
+        user.locked_until = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.LOCKOUT_MINUTES
+        )
+        logger.warning("Cuenta bloqueada: %s", user.email)
+    await db.commit()
+
+
+def _validate_mfa(user: User, totp_code: str | None) -> None:
+    if not totp_code:
+        raise HTTPException(
+            status_code=428, detail="Código MFA requerido"
+        )
+    if not user.mfa_secret or not verify_totp(user.mfa_secret, totp_code):
+        raise HTTPException(
+            status_code=401, detail="Código MFA inválido"
+        )
+
+
+def _generate_tokens(user: User) -> TokenResponse:
+    payload = {"sub": str(user.id), "rol": user.rol}
+    access_token = create_access_token(payload)
+    refresh_token = create_refresh_token(payload)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
 
 async def refresh_tokens(refresh_token: str, db: AsyncSession) -> TokenResponse:

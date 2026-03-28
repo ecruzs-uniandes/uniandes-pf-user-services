@@ -24,7 +24,9 @@ async def register(request: UserRegisterRequest, db: AsyncSession = Depends(get_
 
 @router.post("/login", response_model=TokenResponse)
 async def login(request: UserLoginRequest, db: AsyncSession = Depends(get_db)):
-    raise NotImplementedError
+    return await auth_service.login_user(
+        request.email, request.password, request.totp_code, db
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
