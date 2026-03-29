@@ -43,7 +43,7 @@ class RateLimitFilter(AuthFilter):
 
 class TokenValidationFilter(AuthFilter):
     async def handle(self, request: Request) -> dict:
-        auth_header = request.headers.get("Authorization")
+        auth_header = request.headers.get("X-Forwarded-Authorization") or request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Token no proporcionado")
 
