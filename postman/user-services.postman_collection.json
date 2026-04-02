@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "TravelHub - User Services",
-    "description": "Colección completa de endpoints del microservicio user-services.\n\n**Flujo recomendado:**\n1. Health Check\n2. Register\n3. Login (guarda tokens automáticamente)\n4. Get Me\n5. MFA Setup\n6. MFA Verify\n7. Login con MFA\n8. Refresh Token\n\n**Casos de error:** carpeta separada con todos los escenarios de error.",
+    "description": "Colección completa de endpoints del microservicio user-services.\n\n**Flujo recomendado:**\n1. Health Check\n2. Register\n3. Login (guarda tokens automáticamente)\n4. Get Me\n5. Update Me\n6. MFA Setup\n7. MFA Verify\n8. Login con MFA\n9. Refresh Token\n\n**Casos de error:** carpeta separada con todos los escenarios de error.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -118,7 +118,7 @@
                   "  pm.expect(json).to.have.property('access_token');",
                   "  pm.expect(json).to.have.property('refresh_token');",
                   "  pm.expect(json.token_type).to.eql('bearer');",
-                  "  pm.expect(json.expires_in).to.eql(1800);",
+                  "  pm.expect(json.expires_in).to.eql(900);",
                   "});",
                   "// Guardar tokens automáticamente",
                   "const json = pm.response.json();",
@@ -164,7 +164,46 @@
           ]
         },
         {
-          "name": "4. MFA Setup",
+          "name": "4. Update Me (perfil)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Carlos Actualizado\",\n  \"telefono\": \"+57 310 9876543\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "me"]
+            },
+            "description": "Actualiza nombre, password y/o telefono. Todos los campos son opcionales."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Nombre actualizado', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.nombre).to.eql('Carlos Actualizado');",
+                  "  pm.expect(json.telefono).to.eql('+57 310 9876543');",
+                  "});",
+                  "pm.test('No expone hashed_password', () => {",
+                  "  pm.expect(pm.response.json()).to.not.have.property('hashed_password');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. MFA Setup",
           "request": {
             "method": "POST",
             "header": [
@@ -196,7 +235,7 @@
           ]
         },
         {
-          "name": "5. MFA Verify",
+          "name": "6. MFA Verify",
           "request": {
             "method": "POST",
             "header": [
@@ -230,7 +269,7 @@
           ]
         },
         {
-          "name": "6. Login con MFA",
+          "name": "7. Login con MFA",
           "request": {
             "method": "POST",
             "header": [
@@ -268,7 +307,7 @@
           ]
         },
         {
-          "name": "7. Refresh Token",
+          "name": "8. Refresh Token",
           "request": {
             "method": "POST",
             "header": [
@@ -430,6 +469,69 @@
                   "pm.test('Mensaje MFA requerido', () => {",
                   "  pm.expect(pm.response.json().detail).to.include('MFA requerido');",
                   "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Me - Sin token (401)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Sin Auth\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "me"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('Token no proporcionado', () => {",
+                  "  pm.expect(pm.response.json().detail).to.include('Token no proporcionado');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Me - Validacion (422)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"short\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "me"]
+            },
+            "description": "Password menor a 8 caracteres debe retornar 422."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 422', () => pm.response.to.have.status(422));"
                 ],
                 "type": "text/javascript"
               }

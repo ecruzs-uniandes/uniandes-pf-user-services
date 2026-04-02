@@ -12,6 +12,7 @@ from app.schemas.user import (
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
+    UserUpdateRequest,
 )
 from app.services import auth_service
 
@@ -41,6 +42,15 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
 ):
     return await auth_service.get_current_user(user_id, db)
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_me(
+    request: UserUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.update_user(user_id, request, db)
 
 
 @router.post("/mfa/setup", response_model=MFASetupResponse)

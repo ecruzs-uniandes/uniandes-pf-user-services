@@ -48,6 +48,12 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserUpdateRequest(BaseModel):
+    nombre: str | None = Field(None, min_length=1, max_length=255)
+    password: str | None = Field(None, min_length=8, max_length=128)
+    telefono: str | None = None
+
+
 class MFASetupResponse(BaseModel):
     secret: str
     qr_uri: str

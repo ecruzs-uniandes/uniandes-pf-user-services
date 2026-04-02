@@ -13,6 +13,7 @@ from app.schemas.user import (
     TokenResponse,
     UserRegisterRequest,
     UserResponse,
+    UserUpdateRequest,
 )
 from app.config import settings
 from app.utils.jwt_handler import create_access_token, create_refresh_token, decode_token
@@ -188,6 +189,25 @@ async def _get_user_by_id(user_id: str, db: AsyncSession) -> User:
 
 async def get_current_user(user_id: str, db: AsyncSession) -> UserResponse:
     user = await _get_user_by_id(user_id, db)
+    return UserResponse.model_validate(user)
+
+
+async def update_user(
+    user_id: str, request: UserUpdateRequest, db: AsyncSession
+) -> UserResponse:
+    user = await _get_user_by_id(user_id, db)
+
+    if request.nombre is not None:
+        user.nombre = request.nombre
+    if request.password is not None:
+        user.hashed_password = hash_password(request.password)
+    if request.telefono is not None:
+        user.telefono = request.telefono
+
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info("Usuario actualizado: %s", user.email)
     return UserResponse.model_validate(user)
 
 

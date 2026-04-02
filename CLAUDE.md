@@ -96,6 +96,12 @@ tests/
 - Nunca aceptar refresh donde se espera access (y viceversa)
 - Endpoint JWKS: `GET /.well-known/jwks.json` expone la clave pública para el API Gateway
 
+### Update User
+
+- `PUT /api/v1/auth/me` — solo permite actualizar `nombre`, `password` y `telefono`
+- Todos los campos son opcionales; solo se actualizan los enviados
+- Password se hashea con bcrypt antes de guardar
+
 ### MFA
 - Setup genera secret base32 de 32 chars, QR URI `otpauth://totp/TravelHub:...`
 - Verify con `valid_window=1` (±30s). Éxito → `mfa_activo = True`

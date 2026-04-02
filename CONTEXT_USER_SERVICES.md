@@ -13,6 +13,10 @@
 POST /api/v1/auth/login        → Autentica usuario, retorna JWT firmado
 POST /api/v1/auth/register     → Registra usuario nuevo
 POST /api/v1/auth/refresh      → Renueva access token usando refresh token
+GET  /api/v1/auth/me           → Perfil del usuario autenticado
+PUT  /api/v1/auth/me           → Actualizar perfil (nombre, password, telefono)
+POST /api/v1/auth/mfa/setup    → Generar secreto TOTP para MFA
+POST /api/v1/auth/mfa/verify   → Verificar código TOTP y activar MFA
 GET  /.well-known/jwks.json    → Expone clave pública JWKS (el gateway la consume)
 GET  /api/v1/admin/{path}      → Panel admin (protegido por JWT + RBAC)
 GET  /health                   → Health check para GCP
@@ -215,19 +219,32 @@ gcloud run deploy user-services \
 
 ---
 
-## 11. Infra ya desplegada
+## 11. Infra desplegada
 
 | Capa | Estado | Recurso |
 |---|---|---|
 | Cloud Armor | Desplegado | `travelhub-security-policy` (WAF + rate limiting + geo-blocking) |
 | VPC | Desplegado | `travelhub-vpc` con 3 subnets + VPC connector |
 | Firewall | Desplegado | 9 reglas (DENY ALL default) |
-| API Gateway | **Spec lista, NO desplegado** | Espera URLs reales de Cloud Run |
+| Cloud SQL | Desplegado | `travelhub-db` (PostgreSQL 15, IP privada `10.100.0.3`) |
+| Cloud Run | Desplegado | `user-services` con VPC connector |
+| API Gateway | Desplegado | `travelhub-gateway-1yvtqj7r.uc.gateway.dev` |
 
 ---
 
-## 12. Post-deploy: qué necesita el equipo de infra
+## 12. URLs del servicio desplegado
 
-Una vez desplegado user-services, reportar la **URL de Cloud Run** (formato `https://user-services-XXXXX-uc.a.run.app`) para:
-1. Actualizar `gateway/openapi-spec.yaml` (reemplazar PLACEHOLDER)
-2. Desplegar el API Gateway
+| Recurso | URL |
+|---|---|
+| Cloud Run (directo) | `https://user-services-ridyy4wz4q-uc.a.run.app` |
+| API Gateway | `https://travelhub-gateway-1yvtqj7r.uc.gateway.dev` |
+| JWKS | `https://user-services-ridyy4wz4q-uc.a.run.app/.well-known/jwks.json` |
+
+---
+
+## 13. Notas de integración gateway ↔ backend
+
+- El API Gateway reemplaza el header `Authorization` con un OIDC token de servicio y mueve el JWT original del usuario a `X-Forwarded-Authorization`.
+- El middleware `TokenValidationFilter` lee primero `X-Forwarded-Authorization` y luego `Authorization` como fallback.
+- Las claves RSA se persisten via variable de entorno `RSA_PRIVATE_KEY_B64` (base64 del PEM). Se setea con `gcloud run services update`, no en `cloudbuild.yaml`.
+- Al redesplegar el servicio con una nueva clave RSA, hay que redesplegar la config del API Gateway para que refresque el JWKS cacheado.

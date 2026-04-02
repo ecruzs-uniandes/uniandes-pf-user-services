@@ -375,6 +375,35 @@ Authorization: Bearer <access_token>
 
 ---
 
+#### PUT /api/v1/auth/me
+
+Actualiza el perfil del usuario autenticado. Solo permite modificar `nombre`, `password` y `telefono`. Todos los campos son opcionales; solo se actualizan los que se envian.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body:**
+```json
+{
+  "nombre": "Nuevo Nombre",
+  "password": "nuevapass123",
+  "telefono": "+57 300 9876543"
+}
+```
+
+**Response 200:** Misma estructura que la respuesta de registro.
+
+**Errores:**
+
+| Codigo | Condicion |
+|--------|-----------|
+| 401 | Token no proporcionado, invalido, expirado, o de tipo incorrecto |
+| 422 | Error de validacion (password < 8 chars, nombre vacio) |
+
+---
+
 #### POST /api/v1/auth/mfa/setup
 
 Genera un secreto TOTP y la URI para configurar MFA en una aplicacion authenticator.
