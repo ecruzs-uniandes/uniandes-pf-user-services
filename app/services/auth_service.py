@@ -28,19 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 async def register_user(request: UserRegisterRequest, db: AsyncSession) -> UserResponse:
-    result = await db.execute(
-        select(User).where(
-            (User.email == request.email) | (User.username == request.username)
-        )
-    )
-    existing = result.scalar_one_or_none()
+    result_email = await db.execute(select(User).where(User.email == request.email))
+    if result_email.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
 
-    if existing:
-        field = "email" if existing.email == request.email else "username"
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya existe un usuario con ese {field}",
-        )
+    result_username = await db.execute(select(User).where(User.username == request.username))
+    if result_username.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese username")
 
     user = User(
         email=request.email,
